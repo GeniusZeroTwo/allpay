@@ -1,6 +1,4 @@
-import com.github.jengelman.gradle.plugins.shadow.transformers.AppendingTransformer
 import com.github.jengelman.gradle.plugins.shadow.transformers.Log4j2PluginsCacheFileTransformer
-import com.github.jengelman.gradle.plugins.shadow.transformers.ServiceFileTransformer
 
 plugins {
     id("com.gradleup.shadow")
@@ -52,6 +50,8 @@ tasks {
         ).plus(shadowRelocations).forEach { (original, target) ->
             relocate(original, "$shadowGroup.$target")
         }
+        append("META-INF/LICENSE.txt")
+        append("META-INF/LICENSE")
         append("META-INF/PluginBaseHolders")
         minimize {
             val dependencies = listOf(

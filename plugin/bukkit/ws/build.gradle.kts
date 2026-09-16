@@ -27,6 +27,9 @@ tasks {
     shadowJar {
         configurations.add(project.configurations.runtimeClasspath.get())
         configurations.add(shadowLink)
+        append("META-INF/LICENSE.txt")
+        append("META-INF/LICENSE")
+        append("META-INF/PluginBaseHolders")
         val shadowRelocations: Map<String, String> by project.extra
         shadowRelocations.forEach { (original, target) ->
             relocate(original, "$shadowGroup.$target")
