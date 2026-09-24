@@ -8,7 +8,7 @@ allprojects {
     extra["adventureVersion"] = "4.25.0"
     dependencies {
         if (configurations.findByName("implementation") != null) {
-            add("implementation", "de.tr7zw:item-nbt-api:2.16.0")
+            add("implementation", "de.tr7zw:item-nbt-api:2.16.1")
         }
     }
 }
