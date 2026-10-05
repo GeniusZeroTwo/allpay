@@ -383,7 +383,9 @@ export function createEasyPayRoutes(database: AppDatabase, scanner: PaymentScann
       const body = ((await c.req.json().catch(() => ({}))) ?? {}) as Record<string, unknown>;
       const type = String(body.type ?? "wechat").toLowerCase();
       const money = String(body.money ?? "").trim();
-      const token = String(body.token ?? "").trim();
+      const queryToken = c.req.query("token") ?? "";
+      const headerToken = c.req.header("x-hook-token") ?? c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+      const token = String(body.token ?? (queryToken || headerToken)).trim();
 
       const expectedToken = getSecret(database, "wxpay_hook_token");
       if (expectedToken && token !== expectedToken) {
