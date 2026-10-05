@@ -52,7 +52,7 @@ jobs:
 
   build-hooks:
     name: Build WeChat Hooks (Plan A & B)
-    runs-on: windows-2025
+    runs-on: windows-latest
     env:
       CL: "/utf-8"
     steps:
@@ -80,7 +80,7 @@ jobs:
           cd wechat-hook/v3
           New-Item -ItemType Directory -Force -Path Out
           nuget restore Hook.sln
-          msbuild Hook.sln /p:Configuration=Release /p:Platform=x64
+          msbuild Hook.sln /p:Configuration=Release /p:Platform=x64 /p:WindowsTargetPlatformVersion="10.0"
 
           Set-Content -Path Out/config.properties -Value "# AllPay 微信 PC Hook 方案 B 配置文件`r`n# 适用微信版本：3.9.12.51`r`n# Hook 接收端点地址（若网关后台设置了通信 Token，追加 ?token=xxx）`r`napi_url=http://127.0.0.1:3000/api/hook/receive`r`n"
           Copy-Item LICENSE Out/LICENSE
