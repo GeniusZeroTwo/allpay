@@ -1,0 +1,29 @@
+services:
+  alimpay:
+    build: .
+    image: alimpay-bun:local
+    container_name: alimpay
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:3000:3000"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATA_DIR: /data
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://pay.example.com}
+      APP_MASTER_KEY: ${APP_MASTER_KEY:-}
+      TRUST_PROXY: ${TRUST_PROXY:-true}
+      ALLOW_PRIVATE_CALLBACKS: ${ALLOW_PRIVATE_CALLBACKS:-false}
+      ALLOWED_CALLBACK_HOSTS: ${ALLOWED_CALLBACK_HOSTS:-}
+    volumes:
+      - ./data:/data
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    networks:
+      - 1panel-network
+
+networks:
+  1panel-network:
+    external: true
