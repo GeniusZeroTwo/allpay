@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Windows;
 
 namespace WeChatHook
@@ -12,7 +12,7 @@ namespace WeChatHook
         public DialogSetKey(string text)
         {
             InitializeComponent();
-            TextInput.Text = text;
+            InputTextBox.Text = text;
             Text = text;
         }
 
@@ -23,7 +23,7 @@ namespace WeChatHook
 
         private void Button_OK_Click(object sender, RoutedEventArgs e)
         {
-            Text = TextInput.Text;
+            Text = InputTextBox.Text;
             DialogResult = true;
             Close();
         }

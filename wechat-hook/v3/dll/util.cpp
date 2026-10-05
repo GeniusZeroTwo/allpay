@@ -1,4 +1,4 @@
-﻿#include "Shlwapi.h"
+#include "Shlwapi.h"
 #include "framework.h"
 #include <codecvt>
 #include <locale>
@@ -170,7 +170,7 @@ static int GetWeChatPath(wchar_t* path)
     DWORD cchName = MAX_PATH;
 
     if (ERROR_SUCCESS != RegOpenKey(HKEY_USERS, L"", &hUsers)) {
-        LOG_WARN("Failed to read from Registry (HKEY_USERS)，Trying old methods to get WeChat path.");
+        LOG_WARN("Failed to read from Registry (HKEY_USERS), Trying old methods to get WeChat path.");
         return GetWeChatPath0(path, HKEY_CURRENT_USER, "HKEY_CURRENT_USER", NULL);
     }
     if (hUsers)

@@ -1,4 +1,4 @@
-﻿using Microsoft.Data.Sqlite;
+using Microsoft.Data.Sqlite;
 using Microsoft.Win32;
 using System.Data;
 using System.IO;
@@ -82,14 +82,14 @@ namespace WeChatHook
             {
                 warn($"(文件监听) {ex}");
                 ProcessingFiles.Remove(fullPath);
-                if (NextProcessFiles.Remove(fullPath)) OnFileChange(fi);
+                if (NextProcessFiles.Remove(fullPath)) await OnFileChange(fi);
                 DeleteDatabaseFile(target);
                 return;
             }
             if (NextProcessFiles.Remove(fullPath))
             {
                 DeleteDatabaseFile(target);
-                OnFileChange(fi);
+                await OnFileChange(fi);
             }
             else
             {

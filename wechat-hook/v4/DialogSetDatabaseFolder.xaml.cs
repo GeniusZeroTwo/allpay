@@ -1,4 +1,4 @@
-﻿using Microsoft.Win32;
+using Microsoft.Win32;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -14,7 +14,7 @@ namespace WeChatHook
         public DialogSetDatabaseFolder(string text)
         {
             InitializeComponent();
-            TextInput.Text = text;
+            InputTextBox.Text = text;
             Text = text;
             AddToAutoDetectList(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + "\\xwechat_files");
             foreach (var drive in Environment.GetLogicalDrives())
@@ -45,7 +45,7 @@ namespace WeChatHook
 
         private void Button_OK_Click(object sender, RoutedEventArgs e)
         {
-            Text = TextInput.Text;
+            Text = InputTextBox.Text;
             DialogResult = true;
             Close();
         }
@@ -60,7 +60,7 @@ namespace WeChatHook
             };
             if (ofd.ShowDialog() == true)
             {
-                TextInput.Text = ofd.FolderName;
+                InputTextBox.Text = ofd.FolderName;
             }
         }
 
@@ -71,7 +71,7 @@ namespace WeChatHook
                 var tag = item.Tag;
                 if (tag is string dbPath && dbPath != string.Empty)
                 {
-                    TextInput.Text = dbPath;
+                    InputTextBox.Text = dbPath;
                 }
             }
         }

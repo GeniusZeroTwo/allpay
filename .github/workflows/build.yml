@@ -22,10 +22,13 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE20: true
+
 jobs:
   test-allpay:
     name: Test & Build AllPay Server
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,6 +53,8 @@ jobs:
   build-hooks:
     name: Build WeChat Hooks (Plan A & B)
     runs-on: windows-2025
+    env:
+      CL: "/utf-8"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -108,7 +113,7 @@ jobs:
     name: Publish to GitHub Releases
     needs: [test-allpay, build-hooks]
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Download Hook Artifacts
         uses: actions/download-artifact@v4

@@ -1,4 +1,4 @@
-﻿#include "framework.h"
+#include "framework.h"
 #include "psapi.h"
 #include <filesystem>
 #include <string>
@@ -133,7 +133,7 @@ static UINT64 GetFuncOffset(LPCWSTR dllPath, LPCSTR funcName)
     DWORD err;
     if (dll == NULL) {
         err = GetLastError();
-        LOG_WARN("[GetFuncOffset] Failed to LoadLibaray and get func offset，err={}", to_string(err));
+        LOG_WARN("[GetFuncOffset] Failed to LoadLibaray and get func offset, err={}", to_string(err));
         // MessageBox(NULL, L"获取 DLL 失败", L"GetFuncOffset", 0);
         return 0;
     }

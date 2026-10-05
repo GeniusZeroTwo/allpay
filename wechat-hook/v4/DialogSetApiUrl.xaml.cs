@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 
 namespace WeChatHook
 {
@@ -11,13 +11,13 @@ namespace WeChatHook
         public DialogSetApiUrl(string text)
         {
             InitializeComponent();
-            TextInput.Text = text;
+            InputTextBox.Text = text;
             Text = text;
         }
 
         private void Button_OK_Click(object sender, RoutedEventArgs e)
         {
-            Text = TextInput.Text;
+            Text = InputTextBox.Text;
             DialogResult = true;
             Close();
         }
