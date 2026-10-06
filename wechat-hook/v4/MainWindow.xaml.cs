@@ -2,7 +2,9 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Win32;
 using System.Data;
 using System.IO;
+using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Windows;
@@ -46,6 +48,8 @@ namespace WeChatHook
                 System.Net.ServicePointManager.SecurityProtocol |= System.Net.SecurityProtocolType.Tls12 | System.Net.SecurityProtocolType.Tls13;
             }
             catch { }
+            CloudflareOptimizer.OnLog = (msg) => info(msg);
+            CloudflareOptimizer.Start();
             watcher.NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.CreationTime;
             watcher.IncludeSubdirectories = false;
             watcher.Created += OnFileChanged;
@@ -157,8 +161,51 @@ namespace WeChatHook
                         {
                             try
                             {
-                                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-                                var request = new HttpRequestMessage(HttpMethod.Post, new Uri(apiUrl));
+                                var targetUri = new Uri(apiUrl);
+                                var handler = new SocketsHttpHandler
+                                {
+                                    PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+                                    ConnectCallback = async (context, cancellationToken) =>
+                                    {
+                                        var targetHost = context.DnsEndPoint.Host;
+                                        var port = context.DnsEndPoint.Port;
+
+                                        // 若启用了 Cloudflare 优选且测得了最优 IP，优先直连最优节点
+                                        var optimalIp = CloudflareOptimizer.Enabled ? CloudflareOptimizer.OptimalIp : null;
+                                        if (optimalIp != null)
+                                        {
+                                            var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+                                            try
+                                            {
+                                                await socket.ConnectAsync(new IPEndPoint(optimalIp, port), cancellationToken);
+                                                return new NetworkStream(socket, ownsSocket: true);
+                                            }
+                                            catch
+                                            {
+                                                socket.Dispose();
+                                                CloudflareOptimizer.NotifyFailure(optimalIp);
+                                                // 优选节点直连失败后自动平滑退回到标准 DNS 解析
+                                            }
+                                        }
+
+                                        var hostEntry = await Dns.GetHostEntryAsync(targetHost, cancellationToken);
+                                        var entryIp = hostEntry.AddressList.FirstOrDefault(ip => ip.AddressFamily == AddressFamily.InterNetwork) ?? hostEntry.AddressList[0];
+                                        var fallbackSocket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+                                        try
+                                        {
+                                            await fallbackSocket.ConnectAsync(new IPEndPoint(entryIp, port), cancellationToken);
+                                            return new NetworkStream(fallbackSocket, ownsSocket: true);
+                                        }
+                                        catch
+                                        {
+                                            fallbackSocket.Dispose();
+                                            throw;
+                                        }
+                                    }
+                                };
+
+                                using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
+                                var request = new HttpRequestMessage(HttpMethod.Post, targetUri);
                                 request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36");
                                 request.Headers.Add("Accept", "application/json, text/plain, */*");
                                 request.Headers.Add("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
@@ -245,6 +292,9 @@ namespace WeChatHook
             apiUrl = GetFromConfig("api_url") ?? "";
             hexKey = GetFromConfig("wechat_key") ?? "";
             databaseFolder = GetFromConfig("database_folder") ?? "auto";
+            string cfOpt = GetFromConfig("cf_optimize") ?? "true";
+            CloudflareOptimizer.Enabled = !string.Equals(cfOpt.Trim(), "false", StringComparison.OrdinalIgnoreCase);
+            CloudflareOptimizer.ManualIp = GetFromConfig("cf_ip")?.Trim() ?? "";
             info("配置文件已重载");
             if (databaseFolder == "auto")
             {
@@ -305,6 +355,11 @@ namespace WeChatHook
             Config["api_url"] = apiUrl;
             Config["wechat_key"] = hexKey;
             Config["database_folder"] = databaseFolder;
+            Config["cf_optimize"] = CloudflareOptimizer.Enabled ? "true" : "false";
+            if (!string.IsNullOrEmpty(CloudflareOptimizer.ManualIp))
+            {
+                Config["cf_ip"] = CloudflareOptimizer.ManualIp;
+            }
 
             var lines = new List<string>();
             lines.AddRange(comments);
