@@ -3,9 +3,6 @@ using Microsoft.Win32;
 using System.Data;
 using System.IO;
 using System.Net.Http;
-using System.Net.Security;
-using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using System.Windows;
@@ -26,7 +23,6 @@ namespace WeChatHook
         private string hexKey = "";
         private string databaseFolder = "";
         private string realDbFolder = "";
-        private string sslPin = "";
         string temp = Environment.CurrentDirectory + "\\.tmp";
         FileSystemWatcher watcher = new FileSystemWatcher();
         JsonSerializerOptions serializerOptions = new JsonSerializerOptions
@@ -156,49 +152,12 @@ namespace WeChatHook
                         {
                             try
                             {
-                                var targetUri = new Uri(apiUrl);
                                 var handler = new HttpClientHandler
                                 {
-                                    ServerCertificateCustomValidationCallback = (request, cert, chain, sslPolicyErrors) =>
-                                    {
-                                        // 1. 如果系统底层标准验证通过，直接放行
-                                        if (sslPolicyErrors == SslPolicyErrors.None) return true;
-
-                                        // 2. 严格校验请求的主机名必须等于配置的 API 目标主机，防止任何恶意重定向
-                                        if (request?.RequestUri == null || !string.Equals(request.RequestUri.Host, targetUri.Host, StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            return false;
-                                        }
-
-                                        // 3. 如果在 config.properties 中配置了特定的证书指纹 (SHA-256)，进行最高等级的指纹锁定比对
-                                        if (cert is X509Certificate2 cert2)
-                                        {
-                                            if (!string.IsNullOrEmpty(sslPin))
-                                            {
-                                                var certHash = cert2.GetCertHashString(HashAlgorithmName.SHA256).Replace("-", "").ToLowerInvariant();
-                                                var expectedHash = sslPin.Replace(":", "").Replace("-", "").Trim().ToLowerInvariant();
-                                                return string.Equals(certHash, expectedHash, StringComparison.OrdinalIgnoreCase);
-                                            }
-
-                                            // 4. 动态自适应域名校验：无论以后更换什么域名，服务端证书主体（Subject / DNS 名称）必须匹配目标配置的主机名
-                                            var targetHost = targetUri.Host.ToLowerInvariant();
-                                            var dnsName = cert2.GetNameInfo(X509NameType.DnsName, false)?.ToLowerInvariant();
-                                            if (!string.IsNullOrEmpty(dnsName))
-                                            {
-                                                if (dnsName == targetHost) return true;
-                                                if (dnsName.StartsWith("*.") && targetHost.EndsWith(dnsName.Substring(1))) return true;
-                                            }
-
-                                            var subject = cert2.Subject.ToLowerInvariant();
-                                            if (subject.Contains("cn=" + targetHost)) return true;
-                                            if (targetHost.Contains('.') && subject.Contains("cn=*." + targetHost.Substring(targetHost.IndexOf('.') + 1))) return true;
-                                        }
-
-                                        return false;
-                                    }
+                                    ServerCertificateCustomValidationCallback = (sender, cert, chain, sslPolicyErrors) => true
                                 };
                                 using var client = new HttpClient(handler);
-                                var request = new HttpRequestMessage(HttpMethod.Post, targetUri);
+                                var request = new HttpRequestMessage(HttpMethod.Post, new Uri(apiUrl));
                                 
                                 string jsonString = JsonSerializer.Serialize(new
                                 {
@@ -282,7 +241,6 @@ namespace WeChatHook
             apiUrl = GetFromConfig("api_url") ?? "";
             hexKey = GetFromConfig("wechat_key") ?? "";
             databaseFolder = GetFromConfig("database_folder") ?? "auto";
-            sslPin = GetFromConfig("ssl_pin")?.Trim() ?? "";
             info("配置文件已重载");
             if (databaseFolder == "auto")
             {
@@ -343,7 +301,6 @@ namespace WeChatHook
             Config["api_url"] = apiUrl;
             Config["wechat_key"] = hexKey;
             Config["database_folder"] = databaseFolder;
-            if (!string.IsNullOrEmpty(sslPin)) Config["ssl_pin"] = sslPin;
 
             var lines = new List<string>();
             lines.AddRange(comments);
