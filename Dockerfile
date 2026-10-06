@@ -1,14 +1,14 @@
-FROM oven/bun:1.3.13-alpine AS build
+FROM oven/bun:alpine AS build
 WORKDIR /app
 
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
+RUN bun install
 
 COPY index.html tsconfig.json vite.config.ts components.json ./
 COPY src ./src
 RUN bun run build
 
-FROM oven/bun:1.3.13-alpine AS runtime
+FROM oven/bun:alpine AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production \
@@ -17,7 +17,7 @@ ENV NODE_ENV=production \
     DATA_DIR=/data
 
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile --production
+RUN bun install --production
 COPY --from=build /app/dist ./dist
 COPY src/server ./src/server
 COPY src/shared ./src/shared
