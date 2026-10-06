@@ -41,6 +41,11 @@ namespace WeChatHook
         public MainWindow()
         {
             InitializeComponent();
+            try
+            {
+                System.Net.ServicePointManager.SecurityProtocol |= System.Net.SecurityProtocolType.Tls12 | System.Net.SecurityProtocolType.Tls13;
+            }
+            catch { }
             watcher.NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.CreationTime;
             watcher.IncludeSubdirectories = false;
             watcher.Created += OnFileChanged;
@@ -152,8 +157,11 @@ namespace WeChatHook
                         {
                             try
                             {
-                                var client = new HttpClient();
+                                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
                                 var request = new HttpRequestMessage(HttpMethod.Post, new Uri(apiUrl));
+                                request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36");
+                                request.Headers.Add("Accept", "application/json, text/plain, */*");
+                                request.Headers.Add("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
                                 
                                 string jsonString = JsonSerializer.Serialize(new
                                 {
@@ -177,7 +185,8 @@ namespace WeChatHook
                             }
                             catch (Exception ex)
                             {
-                                error($"提交收款记录时发生错误: {ex.Message}");
+                                var inner = ex.InnerException != null ? $": {ex.InnerException.Message}" : "";
+                                error($"提交收款记录时发生错误: {ex.Message}{inner}");
                             }
                         }
                         else
