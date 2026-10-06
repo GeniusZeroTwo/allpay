@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { z } from "zod";
 import {
@@ -129,7 +129,7 @@ export function createAdminRoutes(database: AppDatabase, scanner: PaymentScanner
     return c.json({ ok: true });
   });
 
-  app.post("/auth/login", async (c) => {
+  const handleLogin = async (c: any) => {
     const ip = clientIp(c.req.raw.headers);
     checkLoginRateLimit(ip);
     const json = await c.req.json().catch(() => ({}));
@@ -149,28 +149,42 @@ export function createAdminRoutes(database: AppDatabase, scanner: PaymentScanner
     const session = createSession(database, user.id, c.req.raw.headers);
     setAuthCookies(c, session);
     audit(database, "auth.login_success", { actor: user.username, ip });
-    return c.json({ ok: true, username: user.username, csrf_token: session.csrf });
-  });
+    return c.json({
+      ok: true,
+      username: user.username,
+      user: { username: user.username },
+      csrf_token: session.csrf,
+    });
+  };
 
-  app.post("/auth/logout", (c) => {
+  app.post("/login", handleLogin);
+  app.post("/auth/login", handleLogin);
+
+  const handleLogout = (c: any) => {
     const token = getCookie(c, SESSION_COOKIE);
     if (token) database.query("DELETE FROM sessions WHERE token_hash = ?").run(sha256(token));
     clearAuthCookies(c);
     return c.json({ ok: true });
-  });
+  };
+
+  app.post("/logout", handleLogout);
+  app.post("/auth/logout", handleLogout);
 
   app.use("*", authMiddleware(database));
 
-
-  app.get("/auth/me", (c) => {
+  const handleMe = (c: any) => {
     const admin = c.get("admin");
     return c.json({
       authenticated: true,
       username: admin.username,
+      user: { username: admin.username },
       csrf_token: getCookie(c, CSRF_COOKIE) ?? "",
       gateway_ready: isGatewayReady(database),
     });
-  });
+  };
+
+  app.get("/me", handleMe);
+  app.get("/auth/me", handleMe);
 
   app.get("/dashboard", (c) => {
     const todayIso = taipeiMidnight(0);
@@ -477,8 +491,8 @@ export function createAdminRoutes(database: AppDatabase, scanner: PaymentScanner
     return c.json({ ok: true });
   });
 
-  app.post("/system/password", async (c) => {
-    const body = await c.req.json<{ current_password?: string; new_password?: string }>();
+  const handlePasswordChange = async (c: Context<{ Variables: AuthVariables }>) => {
+    const body = ((await c.req.json().catch(() => ({}))) ?? {}) as { current_password?: string; new_password?: string };
     assert(body.current_password && body.new_password, 400, "PASSWORDS_REQUIRED", "必须填写当前密码与新密码");
     assert(body.new_password.length >= 12, 400, "PASSWORD_TOO_SHORT", "新密码至少 12 位");
     const user = database.query("SELECT * FROM admin_users WHERE id = ?").get(c.get("admin").id) as { password_hash: string } | null;
@@ -487,6 +501,45 @@ export function createAdminRoutes(database: AppDatabase, scanner: PaymentScanner
     database.query("UPDATE admin_users SET password_hash = ?, updated_at = ? WHERE id = ?").run(newHash, new Date().toISOString(), c.get("admin").id);
     audit(database, "system.password_changed", { actor: c.get("admin").username, ip: clientIp(c.req.raw.headers) });
     return c.json({ ok: true });
+  };
+
+  app.post("/system/password", handlePasswordChange);
+  app.put("/password", handlePasswordChange);
+
+  app.get("/system", (c) => {
+    const alipayConfigured = Boolean(getSetting(database, "alipay_app_id", "") && getSecret(database, "alipay_private_key"));
+    const activeModeReady = Boolean(getSetting(database, "business_qr_url", "") || getSetting(database, "alipay_user_id", ""));
+    return c.json({
+      ready: isGatewayReady(database),
+      bun_version: Bun.version,
+      database_path: getRuntimeEnv().databasePath,
+      data_dir: getRuntimeEnv().dataDir,
+      alipay_configured: alipayConfigured,
+      active_mode_ready: activeModeReady,
+      callbacks_private_allowed: getRuntimeEnv().allowPrivateCallbacks,
+    });
+  });
+
+  app.get("/docs", (c) => {
+    const baseUrl = getSetting(database, "public_base_url", getRuntimeEnv().publicBaseUrl);
+    const pid = getSetting(database, "merchant_pid", "");
+    return c.json({
+      base_url: baseUrl,
+      pid,
+      pay_type: "alipay,wxpay",
+      v1: {
+        gateway: `${baseUrl}/submit.php`,
+        mapi: `${baseUrl}/mapi.php`,
+        api: `${baseUrl}/api.php`,
+      },
+      v2: {
+        submit: `${baseUrl}/api/pay/submit`,
+        create: `${baseUrl}/api/pay/create`,
+        query: `${baseUrl}/api/pay/query`,
+        merchant_info: `${baseUrl}/api/merchant/info`,
+        merchant_orders: `${baseUrl}/api/merchant/orders`,
+      },
+    });
   });
 
   app.get("/system/audits", (c) => {

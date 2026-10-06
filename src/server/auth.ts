@@ -41,9 +41,20 @@ export function assertOriginAllowed(requestUrl: string, origin: string | undefin
   if (!origin) return;
   const allowed = new Set<string>([new URL(requestUrl).origin]);
   try {
-    allowed.add(new URL(getSetting(database, "public_base_url", "")).origin);
+    const configured = getSetting(database, "public_base_url", "");
+    if (configured) allowed.add(new URL(configured).origin);
   } catch {
     // An invalid configured public URL is handled by settings validation.
+  }
+  if (getRuntimeEnv().nodeEnv === "development") {
+    try {
+      const originUrl = new URL(origin);
+      if (originUrl.hostname === "localhost" || originUrl.hostname === "127.0.0.1") {
+        allowed.add(origin);
+      }
+    } catch {
+      // Ignore malformed origin
+    }
   }
   if (!allowed.has(origin)) throw new AppError(403, "ORIGIN_REJECTED", "请求来源不受信任");
 }
@@ -103,18 +114,21 @@ export function createSession(database: AppDatabase, userId: string, headers: He
 }
 
 export function setAuthCookies(c: Parameters<typeof setCookie>[0], session: ReturnType<typeof createSession>) {
-  const secure = getRuntimeEnv().nodeEnv === "production";
+  const reqUrl = (c as { req?: { url?: string } }).req?.url ?? "";
+  const forwardedProto = (c as { req?: { header?: (n: string) => string | undefined } }).req?.header?.("x-forwarded-proto") ?? "";
+  const isHttps = reqUrl.startsWith("https://") || forwardedProto === "https";
+  const secure = getRuntimeEnv().nodeEnv === "production" ? isHttps : false;
   setCookie(c, SESSION_COOKIE, session.token, {
     httpOnly: true,
     secure,
-    sameSite: "Strict",
+    sameSite: "Lax",
     path: "/",
     expires: session.expires,
   });
   setCookie(c, CSRF_COOKIE, session.csrf, {
     httpOnly: false,
     secure,
-    sameSite: "Strict",
+    sameSite: "Lax",
     path: "/",
     expires: session.expires,
   });
