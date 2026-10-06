@@ -66,27 +66,108 @@ export function CheckoutPage() {
       }),
   );
 
+  // 1. 本地时钟推进
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    const handleVisible = () => {
-      if (document.visibilityState === "visible") {
-        void mutate();
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisible);
-    window.addEventListener("focus", handleVisible);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisible);
-      window.removeEventListener("focus", handleVisible);
-    };
-  }, [mutate]);
-
   const paid = data?.status === "paid" || data?.status === "late_paid";
 
+  // 2. 屏幕防息屏休眠锁 (Screen Wake Lock API)
+  // 当等待付款时，阻止移动端或电脑屏幕自动变暗或熄屏睡眠
+  useEffect(() => {
+    if (paid || typeof navigator === "undefined" || !("wakeLock" in navigator)) return;
+    let wakeLock: any = null;
+    const requestLock = async () => {
+      try {
+        if (document.visibilityState === "visible") {
+          wakeLock = await (navigator as any).wakeLock.request("screen");
+        }
+      } catch {
+        // 忽略低电量或无权限错误
+      }
+    };
+    void requestLock();
+    const handleVis = () => {
+      if (document.visibilityState === "visible") {
+        void requestLock();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVis);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVis);
+      if (wakeLock) {
+        void wakeLock.release().catch(() => {});
+      }
+    };
+  }, [paid]);
+
+  // 3. Web Worker 后台独立心跳（打破移动端/浏览器切后台后的主线程定时器休眠与节流）
+  useEffect(() => {
+    if (paid || typeof Worker === "undefined" || typeof Blob === "undefined") return;
+    let worker: Worker | null = null;
+    let workerUrl = "";
+    try {
+      const code = "setInterval(function() { postMessage('tick'); }, 1500);";
+      const blob = new Blob([code], { type: "application/javascript" });
+      workerUrl = URL.createObjectURL(blob);
+      worker = new Worker(workerUrl);
+      worker.onmessage = () => {
+        void mutate();
+      };
+    } catch {
+      // 若受安全策略限制则由外部机制兜底
+    }
+    return () => {
+      if (worker) {
+        worker.terminate();
+      }
+      if (workerUrl) {
+        URL.revokeObjectURL(workerUrl);
+      }
+    };
+  }, [paid, mutate]);
+
+  // 4. 休眠看门狗与全生命周期唤醒补偿（pageshow、visibilitychange、focus、触摸感知）
+  useEffect(() => {
+    if (paid) return;
+    let lastTime = Date.now();
+    // 监测系统时钟跳变：若两次心跳相隔超过 2.5 秒，说明系统发生过息屏休眠或切后台挂起
+    const watchdog = window.setInterval(() => {
+      const currentTime = Date.now();
+      if (currentTime - lastTime > 2500) {
+        // 从休眠中苏醒，立即无延迟强制刷新订单状态
+        void mutate();
+      }
+      lastTime = currentTime;
+    }, 500);
+
+    const handleWakeup = () => {
+      lastTime = Date.now();
+      void mutate();
+    };
+
+    document.addEventListener("visibilitychange", handleWakeup);
+    window.addEventListener("pageshow", handleWakeup);
+    window.addEventListener("focus", handleWakeup);
+    window.addEventListener("online", handleWakeup);
+    // 移动端切回浏览器通常第一反应是触碰屏幕，触碰即刷
+    window.addEventListener("touchstart", handleWakeup, { passive: true });
+    window.addEventListener("pointerdown", handleWakeup, { passive: true });
+
+    return () => {
+      window.clearInterval(watchdog);
+      document.removeEventListener("visibilitychange", handleWakeup);
+      window.removeEventListener("pageshow", handleWakeup);
+      window.removeEventListener("focus", handleWakeup);
+      window.removeEventListener("online", handleWakeup);
+      window.removeEventListener("touchstart", handleWakeup);
+      window.removeEventListener("pointerdown", handleWakeup);
+    };
+  }, [paid, mutate]);
+
+  // 5. 支付成功后自动跳转商户（包含倒计时与即时返回）
   useEffect(() => {
     if (!paid || !data?.return_target) return;
     const interval = setInterval(() => {
