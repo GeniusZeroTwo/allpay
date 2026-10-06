@@ -374,7 +374,7 @@ export function markOrderPaidDirectly(
   database.exec("BEGIN IMMEDIATE");
   try {
     const current = getOrderById(database, orderId);
-    if (!current || (current.status !== "pending" && current.status !== "expired")) {
+    if (!current || (current.status !== "pending" && current.status !== "expired") || current.type !== info.channel) {
       database.exec("COMMIT");
       return false;
     }

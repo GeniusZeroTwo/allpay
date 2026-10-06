@@ -175,6 +175,14 @@ export function isAllowedCallbackHost(hostname: string, allowedHosts?: string[])
   return configured.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
 }
 
+const DANGEROUS_PORTS = new Set([
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 77, 79, 87, 95,
+  101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 138, 139,
+  143, 179, 389, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540, 556, 563, 587,
+  601, 636, 993, 995, 2049, 3306, 3659, 4045, 5432, 6000, 6379, 6665, 6666, 6667,
+  6668, 6669, 6697, 11211, 27017, 28017,
+]);
+
 export function validateCallbackUrl(value: string, allowPrivate: boolean, allowedHosts?: string[]) {
   let url: URL;
   try {
@@ -184,6 +192,12 @@ export function validateCallbackUrl(value: string, allowPrivate: boolean, allowe
   }
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error("回调地址只允许 HTTP/HTTPS");
   if (url.username || url.password) throw new Error("回调地址不能包含用户名或密码");
+  if (url.port) {
+    const portNum = Number.parseInt(url.port, 10);
+    if (!Number.isInteger(portNum) || portNum <= 0 || portNum > 65535 || DANGEROUS_PORTS.has(portNum)) {
+      throw new Error("回调地址端口受限或不安全");
+    }
+  }
   if (!allowPrivate && !isAllowedCallbackHost(url.hostname, allowedHosts) && isPrivateHostname(url.hostname)) {
     throw new Error("回调地址不能指向本机或私有网络");
   }

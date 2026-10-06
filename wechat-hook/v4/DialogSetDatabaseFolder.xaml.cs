@@ -32,20 +32,24 @@ namespace WeChatHook
 
         private void AddToAutoDetectList(string xwechat_files)
         {
-            if (!Directory.Exists(xwechat_files)) return;
-            var directory = new DirectoryInfo(xwechat_files);
-            foreach (var item in directory.GetDirectories())
+            try
             {
-                string dbPath = directory.FullName + "\\" + item.Name + "\\db_storage\\message";
-                if (Directory.Exists(dbPath))
+                if (!Directory.Exists(xwechat_files)) return;
+                var directory = new DirectoryInfo(xwechat_files);
+                foreach (var item in directory.GetDirectories())
                 {
-                    AutoDetectList.Items.Add(new ListBoxItem
+                    string dbPath = directory.FullName + "\\" + item.Name + "\\db_storage\\message";
+                    if (Directory.Exists(dbPath))
                     {
-                        Content = item.Name,
-                        Tag = dbPath
-                    });
+                        AutoDetectList.Items.Add(new ListBoxItem
+                        {
+                            Content = item.Name,
+                            Tag = dbPath
+                        });
+                    }
                 }
             }
+            catch { }
         }
 
         private void Button_OK_Click(object sender, RoutedEventArgs e)

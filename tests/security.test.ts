@@ -76,6 +76,10 @@ describe("secret and input security", () => {
     expect(isPrivateAddress("8.8.8.8")).toBe(false);
     expect(() => validateCallbackUrl("http://localhost/callback", false)).toThrow();
     expect(() => validateCallbackUrl("file:///etc/passwd", false)).toThrow();
+    expect(() => validateCallbackUrl("http://example.com:22/callback", false)).toThrow();
+    expect(() => validateCallbackUrl("http://example.com:6379/callback", false)).toThrow();
+    expect(() => validateCallbackUrl("http://example.com:25/callback", false)).toThrow();
+    expect(validateCallbackUrl("http://example.com:8080/callback", false).port).toBe("8080");
     expect(validateCallbackUrl("https://example.com/callback", false).hostname).toBe("example.com");
   });
 });

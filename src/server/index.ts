@@ -50,6 +50,7 @@ export function createApp(services?: Partial<AppServices>) {
       imgSrc: ["'self'", "data:", "blob:"],
       fontSrc: ["'self'"],
       connectSrc: ["'self'"],
+      workerSrc: ["'self'", "blob:"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'"],
@@ -116,7 +117,12 @@ export function createApp(services?: Partial<AppServices>) {
     if (c.req.method !== "GET" && c.req.method !== "HEAD") return c.json({ error: "NOT_FOUND", message: "接口不存在" }, 404);
     const clientRoot = resolve(process.cwd(), "dist/client");
     if (!existsSync(clientRoot)) return c.json({ error: "FRONTEND_NOT_BUILT", message: "前端尚未构建，请在开发环境使用 Vite 端口 5173" }, 404);
-    const requestPath = decodeURIComponent(new URL(c.req.url).pathname);
+    let requestPath = "";
+    try {
+      requestPath = decodeURIComponent(new URL(c.req.url).pathname);
+    } catch {
+      return c.json({ error: "BAD_REQUEST", message: "请求路径格式无效" }, 400);
+    }
     const relative = requestPath.replace(/^\/+/, "");
     const candidate = resolve(clientRoot, relative || "index.html");
     if (candidate.startsWith(`${clientRoot}${sep}`)) {
@@ -126,12 +132,19 @@ export function createApp(services?: Partial<AppServices>) {
           headers: {
             "content-type": ASSET_CONTENT_TYPES[extname(candidate)] ?? "application/octet-stream",
             "cache-control": candidate.endsWith("index.html") ? "no-cache" : "public, max-age=31536000, immutable",
+            "x-content-type-options": "nosniff",
           },
         });
       }
     }
     const index = Bun.file(resolve(clientRoot, "index.html"));
-    return new Response(index, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } });
+    return new Response(index, {
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-cache",
+        "x-content-type-options": "nosniff",
+      },
+    });
   });
 
   app.onError((error, c) => {

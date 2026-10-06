@@ -28,7 +28,7 @@ const loginBuckets = new Map<string, LoginBucket>();
 
 export function clientIp(headers: Headers) {
   if (getRuntimeEnv().trustProxy) {
-    return (headers.get("x-forwarded-for")?.split(",")[0] ?? headers.get("x-real-ip") ?? "").trim().slice(0, 128);
+    return (headers.get("cf-connecting-ip") ?? headers.get("x-forwarded-for")?.split(",")[0] ?? headers.get("x-real-ip") ?? "").trim().slice(0, 128);
   }
   return "";
 }
@@ -37,8 +37,14 @@ export function setupCompleted(database: AppDatabase) {
   return Boolean(database.query("SELECT 1 FROM admin_users LIMIT 1").get()) && getSetting(database, "setup_completed", false);
 }
 
-export function assertOriginAllowed(requestUrl: string, origin: string | undefined, database: AppDatabase) {
-  if (!origin) return;
+export function assertOriginAllowed(requestUrl: string, originOrReferer: string | undefined, database: AppDatabase) {
+  if (!originOrReferer) return;
+  let origin = originOrReferer;
+  try {
+    origin = new URL(originOrReferer).origin;
+  } catch {
+    throw new AppError(403, "ORIGIN_REJECTED", "请求来源格式无效");
+  }
   const allowed = new Set<string>([new URL(requestUrl).origin]);
   try {
     const configured = getSetting(database, "public_base_url", "");
@@ -153,7 +159,7 @@ export function authMiddleware(database: AppDatabase): MiddlewareHandler<{ Varia
     if (!row) throw new AppError(401, "SESSION_EXPIRED", "登录已过期，请重新登录");
 
     if (!["GET", "HEAD", "OPTIONS"].includes(c.req.method)) {
-      assertOriginAllowed(c.req.url, c.req.header("origin"), database);
+      assertOriginAllowed(c.req.url, c.req.header("origin") || c.req.header("referer"), database);
       const csrfHeader = c.req.header("x-csrf-token") ?? "";
       const csrfCookie = getCookie(c, CSRF_COOKIE) ?? "";
       if (!csrfHeader || !csrfCookie || !secureEqual(csrfHeader, csrfCookie)) {

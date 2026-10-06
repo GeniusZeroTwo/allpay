@@ -174,7 +174,9 @@ export function CheckoutPage() {
       setRedirectCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(interval);
-          window.location.replace(data.return_target!);
+          if (data.return_target && /^https?:\/\//i.test(data.return_target)) {
+            window.location.replace(data.return_target);
+          }
           return 0;
         }
         return prev - 1;
@@ -225,7 +227,7 @@ export function CheckoutPage() {
                   {redirectCountdown > 0 ? `${redirectCountdown} 秒后自动返回商户页面...` : "正在跳转..."}
                 </p>
                 <Button className="w-full" asChild>
-                  <a href={data.return_target}>
+                  <a href={data.return_target} target="_blank" rel="noopener noreferrer">
                     立即返回商户页面<ExternalLink className="size-4" />
                   </a>
                 </Button>

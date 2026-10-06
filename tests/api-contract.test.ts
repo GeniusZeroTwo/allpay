@@ -110,3 +110,62 @@ describe("EasyPay V2 contract", () => {
     expect(rsaVerify(failedBody, configured.platform.publicKey)).toBe(true);
   });
 });
+
+describe("PC WeChat Hook contract", () => {
+  it("enforces hook token authentication and matches pending wxpay orders", async () => {
+    const configured = configuredDatabase("business_qr");
+    database = configured.database;
+    const { setSecret } = await import("../src/server/config");
+    setSecret(database, "wxpay_hook_token", "test-secret-token");
+    setSetting(database, "wxpay_mode", "hook");
+    setSetting(database, "wxpay_static_qr_url", "http://localhost/uploads/wechat-qr-test.png");
+
+    const scanner = new PaymentScanner(database, new EmptyProvider());
+    const { app } = createApp({ database, scanner, notifications: new NotificationWorker(database, fetch) });
+
+    const { createOrder } = await import("../src/server/orders");
+    const { order } = await createOrder(database, {
+      pid: "1000000001",
+      apiVersion: "v1",
+      type: "wxpay",
+      outTradeNo: "HOOK-TEST-1",
+      name: "Hook item",
+      money: "5.00",
+      notifyUrl: "https://8.8.8.8/notify",
+      returnUrl: "https://8.8.8.8/return",
+    });
+    expect(order.type).toBe("wxpay");
+
+    // 1. Missing token returns 401
+    const noToken = await app.request("http://localhost/api/hook/receive", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "wechat", money: "5.00" }),
+    });
+    expect(noToken.status).toBe(401);
+
+    // 2. Invalid token returns 401
+    const badToken = await app.request("http://localhost/api/hook/receive?token=wrong", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "wechat", money: "5.00" }),
+    });
+    expect(badToken.status).toBe(401);
+
+    // 3. Valid token matches and confirms order
+    const valid = await app.request("http://localhost/api/hook/receive?token=test-secret-token", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "wechat", money: "5.00" }),
+    });
+    expect(valid.status).toBe(200);
+    const validBody = await valid.json() as Record<string, unknown>;
+    expect(validBody.code).toBe(1);
+    expect(validBody.trade_no).toBe(order.trade_no);
+
+    // 4. Order is now paid
+    const { getOrderById } = await import("../src/server/orders");
+    const updated = getOrderById(database, order.id);
+    expect(updated?.status).toBe("paid");
+  });
+});

@@ -1,4 +1,4 @@
-﻿using System.Data;
+using System.Data;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
@@ -77,8 +77,8 @@ namespace WeChatHook
 
             using (var outputStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write))
             {
-                FileStream fs = File.Open(dbPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                 byte[] encryptedData;
+                using (var fs = File.Open(dbPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                 using (var memoryStream = new MemoryStream())
                 {
                     fs.CopyTo(memoryStream);

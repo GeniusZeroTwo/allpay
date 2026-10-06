@@ -136,4 +136,41 @@ describe("admin session and CSRF", () => {
     });
     expect(logoutRes.status).toBe(200);
   });
+
+  it("rate limits brute force login attempts per target without global lockout", async () => {
+    ({ database } = configuredDatabase());
+    const now = new Date().toISOString();
+    const userId = crypto.randomUUID();
+    const { createPasswordHash } = await import("../src/server/auth");
+    const hash = await createPasswordHash("admin-secret-password");
+    database.query("INSERT INTO admin_users(id, username, password_hash, created_at, updated_at) VALUES (?, 'admin', ?, ?, ?)").run(userId, hash, now, now);
+
+    const scanner = new PaymentScanner(database, new EmptyProvider());
+    const { app } = createApp({ database, scanner, notifications: new NotificationWorker(database, fetch) });
+
+    for (let i = 0; i < 5; i++) {
+      const res = await app.request("http://localhost/admin-api/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username: "attacker_target", password: "wrong-password" }),
+      });
+      expect(res.status).toBe(401);
+    }
+
+    // 6th attempt on attacker_target is rate-limited (429)
+    const rateLimited = await app.request("http://localhost/admin-api/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "attacker_target", password: "wrong-password" }),
+    });
+    expect(rateLimited.status).toBe(429);
+
+    // Legitimate admin can still log in without being locked out
+    const adminLogin = await app.request("http://localhost/admin-api/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "admin", password: "admin-secret-password" }),
+    });
+    expect(adminLogin.status).toBe(200);
+  });
 });

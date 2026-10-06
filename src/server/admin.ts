@@ -101,52 +101,65 @@ export function createAdminRoutes(database: AppDatabase, scanner: PaymentScanner
   app.get("/setup/status", (c) => c.json({ setup_completed: setupCompleted(database) }));
 
   app.post("/setup", async (c) => {
-    if (setupCompleted(database)) throw new AppError(400, "ALREADY_SETUP", "初始设置已完成");
-    const json = await c.req.json().catch(() => ({}));
-    const parsed = setupSchema.safeParse(json);
-    if (!parsed.success) throw new AppError(400, "VALIDATION_FAILED", parsed.error.issues[0]?.message ?? "参数错误");
-    const url = validatePublicBaseUrl(parsed.data.public_base_url);
-    const hash = await createPasswordHash(parsed.data.password);
-    const now = new Date().toISOString();
-    database.query(`
-      INSERT INTO admin_users(id, username, password_hash, created_at, updated_at)
-      VALUES (?, 'admin', ?, ?, ?)
-    `).run(crypto.randomUUID(), hash, now, now);
-    setSetting(database, "setup_completed", true);
-    setSetting(database, "public_base_url", url);
-    setSetting(database, "merchant_pid", randomMerchantPid());
-    setSecret(database, "v1_key", randomAlphaNumeric(32));
-    const v2Platform = generateRsaKeyPair();
-    const v2Merchant = generateRsaKeyPair();
-    setSecret(database, "v2_platform_private_key", v2Platform.privateKey);
-    setSetting(database, "v2_platform_public_key", v2Platform.publicKey);
-    setSetting(database, "v2_merchant_public_key", v2Merchant.publicKey);
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      if (setupCompleted(database)) throw new AppError(400, "ALREADY_SETUP", "初始设置已完成");
+      const json = await c.req.json().catch(() => ({}));
+      const parsed = setupSchema.safeParse(json);
+      if (!parsed.success) throw new AppError(400, "VALIDATION_FAILED", parsed.error.issues[0]?.message ?? "参数错误");
+      const url = validatePublicBaseUrl(parsed.data.public_base_url);
+      const hash = await createPasswordHash(parsed.data.password);
+      const now = new Date().toISOString();
+      database.query(`
+        INSERT INTO admin_users(id, username, password_hash, created_at, updated_at)
+        VALUES (?, 'admin', ?, ?, ?)
+      `).run(crypto.randomUUID(), hash, now, now);
+      setSetting(database, "setup_completed", true);
+      setSetting(database, "public_base_url", url);
+      setSetting(database, "merchant_pid", randomMerchantPid());
+      setSecret(database, "v1_key", randomAlphaNumeric(32));
+      const v2Platform = generateRsaKeyPair();
+      const v2Merchant = generateRsaKeyPair();
+      setSecret(database, "v2_platform_private_key", v2Platform.privateKey);
+      setSetting(database, "v2_platform_public_key", v2Platform.publicKey);
+      setSetting(database, "v2_merchant_public_key", v2Merchant.publicKey);
 
-    const alipayKeys = generateRsaKeyPair();
-    setSecret(database, "alipay_private_key", alipayKeys.privateKey);
-    setSetting(database, "alipay_app_public_key", alipayKeys.publicKey);
+      const alipayKeys = generateRsaKeyPair();
+      setSecret(database, "alipay_private_key", alipayKeys.privateKey);
+      setSetting(database, "alipay_app_public_key", alipayKeys.publicKey);
 
-    audit(database, "setup.completed", { ip: clientIp(c.req.raw.headers) });
-    return c.json({ ok: true });
+      setSecret(database, "wxpay_hook_token", randomAlphaNumeric(32));
+
+      audit(database, "setup.completed", { ip: clientIp(c.req.raw.headers) });
+      database.exec("COMMIT");
+      return c.json({ ok: true });
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
   });
 
   const handleLogin = async (c: any) => {
     const ip = clientIp(c.req.raw.headers);
-    checkLoginRateLimit(ip);
     const json = await c.req.json().catch(() => ({}));
     const parsed = loginSchema.safeParse(json);
     if (!parsed.success) throw new AppError(400, "VALIDATION_FAILED", "用户名或密码格式错误");
+    const rateLimitKey = ip ? `${ip}:${parsed.data.username}` : `user:${parsed.data.username}`;
+    checkLoginRateLimit(rateLimitKey);
+    if (ip) checkLoginRateLimit(`ip:${ip}`);
     const user = database.query("SELECT * FROM admin_users WHERE username = ?").get(parsed.data.username) as {
       id: string;
       username: string;
       password_hash: string;
     } | null;
     if (!user || !(await verifyPassword(parsed.data.password, user.password_hash))) {
-      recordLoginFailure(ip);
+      recordLoginFailure(rateLimitKey);
+      if (ip) recordLoginFailure(`ip:${ip}`);
       audit(database, "auth.login_failed", { ip, details: { username: parsed.data.username } });
       throw new AppError(401, "INVALID_CREDENTIALS", "用户名或密码错误");
     }
-    clearLoginFailures(ip);
+    clearLoginFailures(rateLimitKey);
+    if (ip) clearLoginFailures(`ip:${ip}`);
     const session = createSession(database, user.id, c.req.raw.headers);
     setAuthCookies(c, session);
     audit(database, "auth.login_success", { actor: user.username, ip });

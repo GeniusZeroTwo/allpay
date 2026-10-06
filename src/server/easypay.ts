@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import type { OrderRecord, TransferLinkLayer } from "../shared/contracts";
 import type { PaymentScanner } from "./alipay";
+import { clientIp } from "./auth";
 import { getSecret } from "./config";
 import { getSetting, type AppDatabase } from "./db";
 import { AppError, assert } from "./errors";
@@ -51,6 +52,24 @@ function checkoutUrl(database: AppDatabase, order: OrderRecord) {
 function checkMerchant(database: AppDatabase, pid: string) {
   const expected = getSetting(database, "merchant_pid", "");
   assert(expected && secureEqual(pid, expected), 401, "INVALID_MERCHANT", "商户 ID 错误");
+}
+
+function checkHookTokenMatch(token: string, expected: string): boolean {
+  if (!token || !expected) return false;
+  if (secureEqual(token, expected)) return true;
+  if (secureEqual(token.replace(/ /g, "+"), expected)) return true;
+  if (secureEqual(token.replace(/\+/g, " "), expected.replace(/\+/g, " "))) return true;
+  try {
+    if (secureEqual(decodeURIComponent(token), expected)) return true;
+  } catch {
+    // Malformed URI encoding
+  }
+  try {
+    if (secureEqual(encodeURIComponent(token), expected)) return true;
+  } catch {
+    // Ignore
+  }
+  return false;
 }
 
 function verifyV1(database: AppDatabase, parameters: Parameters) {
@@ -360,7 +379,7 @@ export function createEasyPayRoutes(database: AppDatabase, scanner: PaymentScann
         const outTradeNo = String(decrypted.out_trade_no ?? "");
         const tradeState = String(decrypted.trade_state ?? "");
         if (tradeState === "SUCCESS" && outTradeNo) {
-          const order = database.query("SELECT * FROM orders WHERE trade_no = ? OR out_trade_no = ?").get(outTradeNo, outTradeNo) as OrderRecord | null;
+          const order = database.query("SELECT * FROM orders WHERE type = 'wxpay' AND (trade_no = ? OR out_trade_no = ?)").get(outTradeNo, outTradeNo) as OrderRecord | null;
           if (order) {
             markOrderPaidDirectly(database, order.id, {
               channel: "wxpay",
@@ -391,18 +410,12 @@ export function createEasyPayRoutes(database: AppDatabase, scanner: PaymentScann
 
       const expectedToken = getSecret(database, "wxpay_hook_token");
       if (expectedToken) {
-        // Query param '+' is often decoded as space ' ' by HTTP parsers; normalize both
-        const isMatch =
-          token === expectedToken ||
-          token.replace(/ /g, "+") === expectedToken ||
-          token.replace(/\+/g, " ") === expectedToken.replace(/\+/g, " ") ||
-          decodeURIComponent(token) === expectedToken ||
-          encodeURIComponent(token) === expectedToken;
-
-        if (!isMatch) {
-          console.warn(`[Hook] Token 鉴权失败: received="${token}", expected="${expectedToken}"`);
+        if (!checkHookTokenMatch(token, expectedToken)) {
+          console.warn(`[Hook] Token 鉴权失败: 来源 IP=${clientIp(c.req.raw.headers) || "unknown"}`);
           return c.json({ code: -1, msg: "invalid hook token" }, 401);
         }
+      } else {
+        console.warn(`[Hook] 警告: 未配置 wxpay_hook_token，当前 Hook 接口无鉴权防护！来源 IP=${clientIp(c.req.raw.headers) || "unknown"}`);
       }
 
       if (!money) {

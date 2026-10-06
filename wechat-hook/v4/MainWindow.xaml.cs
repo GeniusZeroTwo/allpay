@@ -136,7 +136,8 @@ namespace WeChatHook
                         if (item.CreateTime <= outdate) continue;
                         list.Add(item);
                     }
-                    using var cmd = new SqliteCommand($"SELECT * FROM 'handled_sequences' WHERE create_time > {timestamp};", conn);
+                    using var cmd = new SqliteCommand("SELECT * FROM 'handled_sequences' WHERE create_time > $timestamp;", conn);
+                    cmd.Parameters.AddWithValue("$timestamp", timestamp);
                     var reader = cmd.ExecuteReader();
                     var handled = new List<string>();
                     foreach (var item in reader)
@@ -170,8 +171,12 @@ namespace WeChatHook
                                         var targetHost = context.DnsEndPoint.Host;
                                         var port = context.DnsEndPoint.Port;
 
-                                        // 若启用了 Cloudflare 优选且测得了最优 IP，优先直连最优节点
-                                        var optimalIp = CloudflareOptimizer.Enabled ? CloudflareOptimizer.OptimalIp : null;
+                                        bool isLocalOrIp = IPAddress.TryParse(targetHost, out _) || 
+                                                           targetHost.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+                                                           targetHost.EndsWith(".local", StringComparison.OrdinalIgnoreCase);
+
+                                        // 若启用了 Cloudflare 优选且测得了最优 IP（且目标非本地/局域网），优先直连最优节点
+                                        var optimalIp = (CloudflareOptimizer.Enabled && !isLocalOrIp) ? CloudflareOptimizer.OptimalIp : null;
                                         if (optimalIp != null)
                                         {
                                             var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };

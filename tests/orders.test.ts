@@ -7,6 +7,7 @@ import {
   getActiveOrders,
   getCheckoutData,
   getOrderById,
+  markOrderPaidDirectly,
   recordAndMatchPayment,
 } from "../src/server/orders";
 import { configuredDatabase, orderInput } from "./helpers";
@@ -120,5 +121,26 @@ describe("payment state machine", () => {
     expect(externalStatus("expired")).toBe(0);
     expect(externalStatus("paid")).toBe(1);
     expect(externalStatus("late_paid")).toBe(1);
+  });
+
+  it("rejects payments with mismatched channel", async () => {
+    ({ database } = configuredDatabase());
+    const order = (await createOrder(database, orderInput(1))).order;
+    expect(order.type).toBe("alipay");
+    const mismatch = markOrderPaidDirectly(database, order.id, {
+      channel: "wxpay",
+      channelOrderId: "WX-123",
+      buyer: "buyer",
+    });
+    expect(mismatch).toBe(false);
+    expect(getOrderById(database, order.id)?.status).toBe("pending");
+
+    const match = markOrderPaidDirectly(database, order.id, {
+      channel: "alipay",
+      channelOrderId: "ALI-123",
+      buyer: "buyer",
+    });
+    expect(match).toBe(true);
+    expect(getOrderById(database, order.id)?.status).toBe("paid");
   });
 });
