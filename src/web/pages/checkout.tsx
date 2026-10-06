@@ -38,7 +38,9 @@ export function CheckoutPage() {
     {
       refreshInterval: (latest) => {
         if (latest && (["paid", "late_paid"].includes(latest.status) || Date.parse(latest.monitor_until) <= Date.now())) return 0;
-        return (latest?.payment_poll_interval_seconds ?? PAYMENT_POLL_INTERVAL_DEFAULT_SECONDS) * 1_000;
+        const baseInterval = (latest?.payment_poll_interval_seconds ?? PAYMENT_POLL_INTERVAL_DEFAULT_SECONDS) * 1_000;
+        // 活跃等待期间加快轮询频率到 1.5 秒，确保客户扫码支付后秒级感知并自动跳转
+        return Math.min(baseInterval, 1_500);
       },
       refreshWhenHidden: true,
       revalidateOnFocus: true,
@@ -91,7 +93,7 @@ export function CheckoutPage() {
       setRedirectCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(interval);
-          window.location.assign(data.return_target!);
+          window.location.replace(data.return_target!);
           return 0;
         }
         return prev - 1;

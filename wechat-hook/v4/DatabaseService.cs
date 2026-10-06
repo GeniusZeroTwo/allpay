@@ -1,4 +1,4 @@
-﻿using Microsoft.Data.Sqlite;
+using Microsoft.Data.Sqlite;
 using System.Data;
 using System.IO;
 using System.Text.RegularExpressions;
@@ -61,6 +61,12 @@ namespace WeChatHook
                     if (match.Success)
                     {
                         return match.Groups[1].Value;
+                    }
+                    // 普通收款码 / 微信支付到账格式
+                    var matchNormal = patternNormal.Match(content);
+                    if (matchNormal.Success)
+                    {
+                        return matchNormal.Groups[2].Value;
                     }
                 }
                 return null;

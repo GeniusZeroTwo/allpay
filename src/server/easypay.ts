@@ -387,9 +387,22 @@ export function createEasyPayRoutes(database: AppDatabase, scanner: PaymentScann
       const headerToken = c.req.header("x-hook-token") ?? c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
       const token = String(body.token ?? (queryToken || headerToken)).trim();
 
+      console.info(`[Hook] 收到 Hook 回调请求: type=${type}, money=${money}, has_token=${Boolean(token)}`);
+
       const expectedToken = getSecret(database, "wxpay_hook_token");
-      if (expectedToken && token !== expectedToken) {
-        return c.json({ code: -1, msg: "invalid hook token" }, 401);
+      if (expectedToken) {
+        // Query param '+' is often decoded as space ' ' by HTTP parsers; normalize both
+        const isMatch =
+          token === expectedToken ||
+          token.replace(/ /g, "+") === expectedToken ||
+          token.replace(/\+/g, " ") === expectedToken.replace(/\+/g, " ") ||
+          decodeURIComponent(token) === expectedToken ||
+          encodeURIComponent(token) === expectedToken;
+
+        if (!isMatch) {
+          console.warn(`[Hook] Token 鉴权失败: received="${token}", expected="${expectedToken}"`);
+          return c.json({ code: -1, msg: "invalid hook token" }, 401);
+        }
       }
 
       if (!money) {
@@ -407,6 +420,7 @@ export function createEasyPayRoutes(database: AppDatabase, scanner: PaymentScann
       `).get(targetChannel, amountCents, new Date().toISOString()) as OrderRecord | null;
 
       if (!candidate) {
+        console.warn(`[Hook] 未找到匹配的待支付订单: 金额=¥${money} (${amountCents}分), 通道=${targetChannel}`);
         return c.json({ code: 0, msg: "未找到待支付的匹配订单", money, type: targetChannel });
       }
 
@@ -416,6 +430,8 @@ export function createEasyPayRoutes(database: AppDatabase, scanner: PaymentScann
         buyer: "PC-Hook",
       });
 
+      console.info(`[Hook] 收款成功匹配订单: trade_no=${candidate.trade_no}, out_trade_no=${candidate.out_trade_no}, 金额=¥${money}`);
+
       return c.json({
         code: 1,
         msg: "收款确认成功",
@@ -423,6 +439,7 @@ export function createEasyPayRoutes(database: AppDatabase, scanner: PaymentScann
         out_trade_no: candidate.out_trade_no,
       });
     } catch (error) {
+      console.error(`[Hook] 处理回调异常:`, error);
       return c.json({ code: -1, msg: errorMessage(error) }, 500);
     }
   });

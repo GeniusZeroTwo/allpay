@@ -51,13 +51,23 @@ namespace WeChatHook
         {
             var fi = new FileInfo(e.FullPath);
             var fileName = fi.Name;
-            if (fi.Exists && fi.Name.StartsWith("biz_message_"))
+            if (fi.Exists && (fileName.StartsWith("biz_message_") || fileName.StartsWith("message_")))
             {
                 if (hexKey == string.Empty) return;
                 if (fileName.EndsWith(".db"))
                 {
                     info($"检测到聊天数据变更 {fi.Name}");
                     await OnFileChange(fi);
+                }
+                else if (fileName.EndsWith(".db-wal"))
+                {
+                    var baseDbName = fileName.Substring(0, fileName.Length - 4);
+                    var baseDbFile = new FileInfo(Path.Combine(fi.DirectoryName ?? "", baseDbName));
+                    if (baseDbFile.Exists)
+                    {
+                        info($"检测到聊天日志变更 {fileName}");
+                        await OnFileChange(baseDbFile);
+                    }
                 }
             }
         }
@@ -154,7 +164,16 @@ namespace WeChatHook
                                 request.Content = new StringContent(jsonString, utf8, "application/json");
                                 request.Content.Headers.ContentLength = utf8.GetByteCount(jsonString);
 
-                                client.Send(request);
+                                var response = client.Send(request);
+                                var respContent = response.Content.ReadAsStringAsync().Result;
+                                if (response.IsSuccessStatusCode)
+                                {
+                                    info($"后端响应成功: {respContent}");
+                                }
+                                else
+                                {
+                                    error($"后端返回错误 [{(int)response.StatusCode}]: {respContent}");
+                                }
                             }
                             catch (Exception ex)
                             {
@@ -331,7 +350,7 @@ namespace WeChatHook
             var warning = true;
             foreach (var file in directory.GetFiles())
             {
-                if (file.Name.StartsWith("biz_message_") && file.Name.EndsWith(".db"))
+                if ((file.Name.StartsWith("biz_message_") || file.Name.StartsWith("message_")) && file.Name.EndsWith(".db"))
                 {
                     warning = false;
                     try
