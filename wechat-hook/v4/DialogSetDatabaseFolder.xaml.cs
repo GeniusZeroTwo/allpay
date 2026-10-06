@@ -16,7 +16,11 @@ namespace WeChatHook
             InitializeComponent();
             InputTextBox.Text = text;
             Text = text;
-            AddToAutoDetectList(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + "\\xwechat_files");
+            var defaultDocsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + "\\xwechat_files";
+            if (Directory.Exists(defaultDocsPath))
+            {
+                AddToAutoDetectList(defaultDocsPath);
+            }
             foreach (var drive in Environment.GetLogicalDrives())
             {
                 if (Directory.Exists(drive + "xwechat_files"))
@@ -28,6 +32,7 @@ namespace WeChatHook
 
         private void AddToAutoDetectList(string xwechat_files)
         {
+            if (!Directory.Exists(xwechat_files)) return;
             var directory = new DirectoryInfo(xwechat_files);
             foreach (var item in directory.GetDirectories())
             {
@@ -52,10 +57,14 @@ namespace WeChatHook
 
         private void Button_Browse_Click(object sender, RoutedEventArgs e)
         {
+            var defaultDocsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + "\\xwechat_files";
+            var initialDir = !string.IsNullOrEmpty(Text) && Directory.Exists(Text)
+                ? Text
+                : (Directory.Exists(defaultDocsPath) ? defaultDocsPath : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
             var ofd = new OpenFolderDialog
             {
                 Title = "选择 “xwechat_files\\(用户文件夹)\\db_storage\\message”",
-                InitialDirectory = Text == string.Empty ? (Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + "\\xwechat_files") : Text,
+                InitialDirectory = initialDir,
                 Multiselect = false
             };
             if (ofd.ShowDialog() == true)

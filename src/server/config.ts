@@ -49,12 +49,14 @@ export function getPublicSettings(database: AppDatabase): PublicSettings {
     getSetting(database, "alipay_public_key", ""),
   );
 
-  const wxpayConfigured = Boolean(
-    getSetting(database, "wxpay_app_id", "") &&
-    getSetting(database, "wxpay_mch_id", "") &&
-    getSetting(database, "wxpay_serial_no", "") &&
-    getSecret(database, "wxpay_private_key"),
-  );
+  const wxpayConfigured = wxpayMode === "hook"
+    ? Boolean(getSetting(database, "wxpay_static_qr_url", ""))
+    : Boolean(
+        getSetting(database, "wxpay_app_id", "") &&
+        getSetting(database, "wxpay_mch_id", "") &&
+        getSetting(database, "wxpay_serial_no", "") &&
+        getSecret(database, "wxpay_private_key"),
+      );
 
   return {
     setup_completed: getSetting(database, "setup_completed", false),

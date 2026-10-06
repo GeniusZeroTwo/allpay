@@ -223,6 +223,18 @@ namespace WeChatHook
                 var directiroy = new DirectoryInfo(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + "\\xwechat_files");
                 if (!directiroy.Exists)
                 {
+                    foreach (var drive in Environment.GetLogicalDrives())
+                    {
+                        var candidate = new DirectoryInfo(drive + "xwechat_files");
+                        if (candidate.Exists)
+                        {
+                            directiroy = candidate;
+                            break;
+                        }
+                    }
+                }
+                if (!directiroy.Exists)
+                {
                     realDbFolder = "";
                     warn("找不到微信数据文件夹 xwechat_files，请到左上角“文件”设置数据库路径。");
                 }

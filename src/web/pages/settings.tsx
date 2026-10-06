@@ -10,7 +10,7 @@ import {
   Upload,
   Zap,
 } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import useSWR from "swr";
 import { toast } from "sonner";
 import {
@@ -22,6 +22,7 @@ import {
   type WxpayMode,
 } from "@/shared/contracts";
 import { apiFetch, jsonBody, swrFetcher } from "@/web/api";
+import { CopyButton } from "@/web/components/copy-button";
 import { PageHeader } from "@/web/components/page-header";
 import { Badge } from "@/web/components/ui/badge";
 import { Button } from "@/web/components/ui/button";
@@ -42,6 +43,7 @@ interface SettingsData extends PublicSettings {
   has_wxpay_private_key: boolean;
   has_wxpay_api_v3_key: boolean;
   has_wxpay_hook_token: boolean;
+  wxpay_hook_token?: string;
 }
 
 function SettingsForm({ initial, refresh }: { initial: SettingsData; refresh: () => Promise<unknown> }) {
@@ -71,7 +73,13 @@ function SettingsForm({ initial, refresh }: { initial: SettingsData; refresh: ()
   const [wxpaySerialNo, setWxpaySerialNo] = useState(initial.wxpay_serial_no ?? "");
   const [wxpayPrivateKey, setWxpayPrivateKey] = useState("");
   const [wxpayApiV3Key, setWxpayApiV3Key] = useState("");
-  const [wxpayHookToken, setWxpayHookToken] = useState("");
+  const [wxpayHookToken, setWxpayHookToken] = useState(initial.wxpay_hook_token ?? "");
+
+  useEffect(() => {
+    if (initial.wxpay_hook_token !== undefined) {
+      setWxpayHookToken(initial.wxpay_hook_token);
+    }
+  }, [initial.wxpay_hook_token]);
 
   const [saving, setSaving] = useState(false);
   const [testingAlipay, setTestingAlipay] = useState(false);
@@ -103,17 +111,17 @@ function SettingsForm({ initial, refresh }: { initial: SettingsData; refresh: ()
           wxpay_app_id: wxpayAppId,
           wxpay_mch_id: wxpayMchId,
           wxpay_serial_no: wxpaySerialNo,
+          wxpay_hook_token: wxpayHookToken,
         }),
       });
 
       // Save WeChat secrets if entered
-      if (wxpayPrivateKey || wxpayApiV3Key || wxpayHookToken) {
+      if (wxpayPrivateKey || wxpayApiV3Key) {
         await apiFetch("/admin-api/keys/wxpay/secrets", {
           method: "PUT",
           ...jsonBody({
             private_key: wxpayPrivateKey || undefined,
             api_v3_key: wxpayApiV3Key || undefined,
-            hook_token: wxpayHookToken || undefined,
           }),
         });
         setWxpayPrivateKey("");
@@ -144,7 +152,10 @@ function SettingsForm({ initial, refresh }: { initial: SettingsData; refresh: ()
   async function testWechat() {
     setTestingWechat(true);
     try {
-      const res = await apiFetch<{ ok: boolean; message: string }>("/admin-api/channels/test/wechat", { method: "POST" });
+      const res = await apiFetch<{ ok: boolean; message: string }>("/admin-api/channels/test/wechat", {
+        method: "POST",
+        ...jsonBody({ mode: wxpayMode }),
+      });
       if (res.ok) toast.success(res.message);
       else toast.error(res.message);
     } catch (err: unknown) {
@@ -543,7 +554,26 @@ function SettingsForm({ initial, refresh }: { initial: SettingsData; refresh: ()
                 </div>
               ) : (
                 <div className="mt-6 space-y-4 border-t pt-5">
-                  <h3 className="text-sm font-semibold">PC 微信 Hook 配置</h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold">PC 微信 Hook 配置</h3>
+                    <Button type="button" variant="outline" size="sm" onClick={testWechat} disabled={testingWechat}>
+                      <TestTube className="size-3.5 mr-1" />
+                      {testingWechat ? "正在验证..." : "测试配置状态"}
+                    </Button>
+                  </div>
+
+                  {!initial.wxpay_static_qr_url ? (
+                    <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-800 dark:text-amber-300">
+                      ⚠️ <strong>必须上传收款码</strong>：PC Hook 模式需要向买家展示付款二维码，请在下方上传个人收款码或赞赏码。未上传前微信支付渠道将一直判定为「未配置」。
+                    </div>
+                  ) : null}
+
+                  {wxpayMode !== initial.wxpay_mode ? (
+                    <div className="rounded-md border border-blue-500/30 bg-blue-500/10 p-3 text-xs leading-5 text-blue-800 dark:text-blue-300">
+                      ℹ️ 您已切换收款模式，完成配置后请记得点击页面最底部的<strong>「保存全部配置」</strong>按钮使更改生效。
+                    </div>
+                  ) : null}
+
                   <div className="space-y-3 rounded-lg border p-4">
                     <Label htmlFor="wx-qr-file">上传微信个人/静态收款码</Label>
                     {initial.wxpay_static_qr_url ? (
@@ -580,21 +610,38 @@ function SettingsForm({ initial, refresh }: { initial: SettingsData; refresh: ()
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="wx-hook-token">Hook 鉴权 Token (可选)</Label>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="wx-hook-token">Hook 鉴权 Token (可选)</Label>
+                      {initial.has_wxpay_hook_token ? (
+                        <span className="text-xs text-emerald-600 font-medium">● Token 已配置</span>
+                      ) : (
+                        <span className="text-xs text-muted">未配置（留空保存即可清除）</span>
+                      )}
+                    </div>
                     <Input
                       id="wx-hook-token"
                       value={wxpayHookToken}
                       onChange={(e) => setWxpayHookToken(e.target.value)}
-                      placeholder="设置后 PC Hook 客户端请求必须附带此 Token"
+                      placeholder="设置后 PC Hook 客户端请求必须附带此 Token（留空并保存即可清除）"
                     />
                   </div>
 
                   <div className="rounded-lg bg-slate-50 p-3 text-xs leading-5 text-muted dark:bg-slate-900">
-                    <p className="font-semibold text-slate-800 dark:text-slate-200">Hook 接收接口地址：</p>
+                    <div className="flex items-center justify-between">
+                      <p className="font-semibold text-slate-800 dark:text-slate-200">Hook 接收接口地址 (填入 PC 客户端)：</p>
+                      <CopyButton
+                        value={`${(initial.public_base_url || "http://your-domain.com").replace(/\/$/, "")}/api/hook/receive${wxpayHookToken.trim() ? `?token=${encodeURIComponent(wxpayHookToken.trim())}` : ""}`}
+                        label="复制接口地址"
+                      />
+                    </div>
                     <code className="mt-1 block font-mono text-primary break-all">
-                      {initial.public_base_url || "http://your-domain.com"}/api/hook/receive
+                      {(initial.public_base_url || "http://your-domain.com").replace(/\/$/, "")}/api/hook/receive{wxpayHookToken.trim() ? `?token=${encodeURIComponent(wxpayHookToken.trim())}` : ""}
                     </code>
-                    <p className="mt-2">PC Hook 客户端监听到到账后发送 POST JSON：<code>{`{ "type": "wechat", "money": "1.00", "token": "..." }`}</code></p>
+                    <p className="mt-2">
+                      {wxpayHookToken.trim()
+                        ? "已配置鉴权 Token。直接复制上方完整带 ?token= 参数的接口地址，填入 PC 微信 Hook 软件目录下的 config.properties 中的 api_url 即可。"
+                        : "PC Hook 客户端监听到到账后发送 POST 请求。未设置 Token 时可直接使用上方基础地址；设置 Token 后将自动追加 ?token= 参数。"}
+                    </p>
                   </div>
                 </div>
               )}

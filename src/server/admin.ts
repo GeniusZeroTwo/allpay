@@ -7,6 +7,7 @@ import {
   PAYMENT_POLL_INTERVAL_MAX_SECONDS,
   PAYMENT_POLL_INTERVAL_MIN_SECONDS,
   type OrderStatus,
+  type WxpayMode,
 } from "../shared/contracts";
 import { OfficialAlipayProvider, type PaymentScanner } from "./alipay";
 import {
@@ -291,6 +292,7 @@ export function createAdminRoutes(database: AppDatabase, scanner: PaymentScanner
     has_wxpay_private_key: Boolean(getSecret(database, "wxpay_private_key")),
     has_wxpay_api_v3_key: Boolean(getSecret(database, "wxpay_api_v3_key")),
     has_wxpay_hook_token: Boolean(getSecret(database, "wxpay_hook_token")),
+    wxpay_hook_token: getSecret(database, "wxpay_hook_token"),
   }));
 
   app.put("/settings", async (c) => {
@@ -299,6 +301,7 @@ export function createAdminRoutes(database: AppDatabase, scanner: PaymentScanner
       "public_base_url", "collection_mode", "transfer_user_id",
       "alipay_enabled", "alipay_mode", "alipay_app_id", "alipay_endpoint", "alipay_public_key",
       "wxpay_enabled", "wxpay_mode", "wxpay_app_id", "wxpay_mch_id", "wxpay_serial_no", "wxpay_static_qr_url",
+      "wxpay_hook_token",
       "transfer_link_layer", "payment_poll_interval_seconds", "v1_enabled", "v2_enabled", "business_qr_raw",
     ]);
     for (const key of Object.keys(body)) {
@@ -326,6 +329,7 @@ export function createAdminRoutes(database: AppDatabase, scanner: PaymentScanner
     if (typeof body.wxpay_mch_id === "string") setSetting(database, "wxpay_mch_id", body.wxpay_mch_id.trim());
     if (typeof body.wxpay_serial_no === "string") setSetting(database, "wxpay_serial_no", body.wxpay_serial_no.trim());
     if (typeof body.wxpay_static_qr_url === "string") setSetting(database, "wxpay_static_qr_url", body.wxpay_static_qr_url.trim());
+    if (typeof body.wxpay_hook_token === "string") setSecret(database, "wxpay_hook_token", body.wxpay_hook_token.trim());
 
     if (body.collection_mode === "business_qr" || body.collection_mode === "transfer") setSetting(database, "collection_mode", body.collection_mode);
     if (body.transfer_link_layer !== undefined) {
@@ -390,6 +394,7 @@ export function createAdminRoutes(database: AppDatabase, scanner: PaymentScanner
     await Bun.write(resolve(getRuntimeEnv().uploadDir, filename), bytes);
     const url = `${getSetting(database, "public_base_url", "").replace(/\/$/, "")}/uploads/${filename}`;
     setSetting(database, "wxpay_static_qr_url", url);
+    setSetting(database, "wxpay_mode", "hook");
     audit(database, "settings.wxpay_qr_upload", { actor: c.get("admin").username, details: { filename, mime: detected.mime, size: file.size } });
     return c.json({ ok: true, url });
   });
@@ -408,6 +413,13 @@ export function createAdminRoutes(database: AppDatabase, scanner: PaymentScanner
 
   app.post("/channels/test/wechat", async (c) => {
     try {
+      const body = await c.req.json<{ mode?: WxpayMode }>().catch(() => ({} as { mode?: WxpayMode }));
+      const mode = body.mode || getSetting<WxpayMode>(database, "wxpay_mode", "native");
+      if (mode === "hook") {
+        const qr = getSetting(database, "wxpay_static_qr_url", "");
+        assert(qr, 400, "WXPAY_QR_MISSING", "PC Hook 模式尚未上传微信个人/静态收款码");
+        return c.json({ ok: true, message: "PC 微信 Hook 模式已就绪（收款码已上传）" });
+      }
       wechatService.getCredentials();
       return c.json({ ok: true, message: "微信支付证书及 API 密钥验证通过" });
     } catch (err: unknown) {
