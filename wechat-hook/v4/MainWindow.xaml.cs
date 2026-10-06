@@ -152,11 +152,7 @@ namespace WeChatHook
                         {
                             try
                             {
-                                var handler = new HttpClientHandler
-                                {
-                                    ServerCertificateCustomValidationCallback = (sender, cert, chain, sslPolicyErrors) => true
-                                };
-                                using var client = new HttpClient(handler);
+                                var client = new HttpClient();
                                 var request = new HttpRequestMessage(HttpMethod.Post, new Uri(apiUrl));
                                 
                                 string jsonString = JsonSerializer.Serialize(new
@@ -181,8 +177,7 @@ namespace WeChatHook
                             }
                             catch (Exception ex)
                             {
-                                var inner = ex.InnerException != null ? $": {ex.InnerException.Message}" : "";
-                                error($"提交收款记录时发生错误: {ex.Message}{inner}");
+                                error($"提交收款记录时发生错误: {ex.Message}");
                             }
                         }
                         else
