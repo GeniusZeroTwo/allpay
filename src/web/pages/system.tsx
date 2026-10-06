@@ -17,15 +17,51 @@ interface SystemData {
   bun_version: string;
   database_path: string;
   data_dir: string;
+  alipay_enabled: boolean;
+  alipay_mode: string;
   alipay_configured: boolean;
   active_mode_ready: boolean;
+  alipay_mode_detail?: string;
+  wxpay_enabled: boolean;
+  wxpay_mode: string;
+  wxpay_configured: boolean;
+  wxpay_detail?: string;
   callbacks_private_allowed: boolean;
 }
 
 interface ScanResponse { data: Array<Record<string, unknown>> }
 
-function HealthRow({ label, ready, detail }: { label: string; ready: boolean; detail: string }) {
-  return <div className="flex items-start justify-between gap-4 border-t py-3"><div><div className="text-sm font-medium">{label}</div><p className="mt-1 text-xs text-muted">{detail}</p></div>{ready ? <CheckCircle2 className="size-5 shrink-0 text-success" /> : <XCircle className="size-5 shrink-0 text-destructive" />}</div>;
+function HealthRow({
+  label,
+  ready,
+  detail,
+  badge,
+}: {
+  label: string;
+  ready: boolean;
+  detail: string;
+  badge?: string;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 border-t py-3">
+      <div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">{label}</span>
+          {badge ? (
+            <Badge variant="outline" className="text-[10px]">
+              {badge}
+            </Badge>
+          ) : null}
+        </div>
+        <p className="mt-1 text-xs text-muted">{detail}</p>
+      </div>
+      {ready ? (
+        <CheckCircle2 className="size-5 shrink-0 text-success" />
+      ) : (
+        <XCircle className="size-5 shrink-0 text-destructive" />
+      )}
+    </div>
+  );
 }
 
 export function SystemPage() {
@@ -51,8 +87,36 @@ export function SystemPage() {
           <CardHeader><CardTitle>就绪检查</CardTitle><CardDescription>健康接口：/healthz；就绪接口：/readyz。</CardDescription></CardHeader>
           <CardContent>
             <HealthRow label="Bun 服务与 SQLite" ready={data.ready} detail={`Bun ${data.bun_version}`} />
-            <HealthRow label="支付宝 V3 凭据" ready={data.alipay_configured} detail="应用 ID、应用私钥和支付宝公钥" />
-            <HealthRow label="当前收款模式" ready={data.active_mode_ready} detail="经营码图片或转账用户 ID" />
+            <HealthRow
+              label="支付宝 V3 凭据"
+              ready={data.alipay_configured}
+              detail="应用 ID、应用私钥和支付宝公钥"
+              badge={data.alipay_enabled ? "已启用" : "未开启"}
+            />
+            <HealthRow
+              label="支付宝当前模式"
+              ready={data.active_mode_ready}
+              detail={data.alipay_mode_detail || "经营码图片或转账用户 ID"}
+              badge={
+                data.alipay_mode === "f2f"
+                  ? "当面付"
+                  : data.alipay_mode === "bill"
+                  ? "经营码"
+                  : "转账"
+              }
+            />
+            <HealthRow
+              label="微信支付状态"
+              ready={data.wxpay_configured}
+              detail={data.wxpay_detail || "个人/静态收款码或 APIv3 凭据"}
+              badge={
+                !data.wxpay_enabled
+                  ? "未开启"
+                  : data.wxpay_mode === "hook"
+                  ? "PC Hook"
+                  : "Native"
+              }
+            />
             <div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="rounded-md border p-3"><Server className="size-4 text-primary" /><div className="mt-2 text-xs text-muted">数据目录</div><code className="mt-1 block break-all text-xs">{data.data_dir}</code></div><div className="rounded-md border p-3"><Database className="size-4 text-primary" /><div className="mt-2 text-xs text-muted">数据库</div><code className="mt-1 block break-all text-xs">{data.database_path}</code></div></div>
             {data.callbacks_private_allowed ? <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">ALLOW_PRIVATE_CALLBACKS 已启用，通知可以访问私有网络。只应在受控环境使用。</div> : null}
           </CardContent>

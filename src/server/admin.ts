@@ -519,15 +519,41 @@ export function createAdminRoutes(database: AppDatabase, scanner: PaymentScanner
   app.put("/password", handlePasswordChange);
 
   app.get("/system", (c) => {
-    const alipayConfigured = Boolean(getSetting(database, "alipay_app_id", "") && getSecret(database, "alipay_private_key"));
-    const activeModeReady = Boolean(getSetting(database, "business_qr_url", "") || getSetting(database, "alipay_user_id", ""));
+    const pub = getPublicSettings(database);
+    const alipayMode = pub.alipay_mode;
+    const wxpayMode = pub.wxpay_mode;
+
+    let alipayModeDetail = "官方当面付 (F2F)";
+    let activeModeReady = pub.alipay_configured;
+    if (alipayMode === "bill") {
+      alipayModeDetail = "经营码账单流水匹配（经营码图片）";
+      activeModeReady = Boolean(pub.business_qr_url);
+    } else if (alipayMode === "transfer") {
+      alipayModeDetail = "转账备注匹配（收款方支付宝用户 ID）";
+      activeModeReady = Boolean(getSetting(database, "transfer_user_id", ""));
+    }
+
+    let wxpayDetail = "微信商户平台官方 Native 扫码 (APIv3)";
+    if (wxpayMode === "hook") {
+      wxpayDetail = pub.wxpay_static_qr_url
+        ? "PC 微信 Hook 模式（收款码已就绪）"
+        : "PC 微信 Hook 模式（尚未上传静态收款码）";
+    }
+
     return c.json({
       ready: isGatewayReady(database),
       bun_version: Bun.version,
       database_path: getRuntimeEnv().databasePath,
       data_dir: getRuntimeEnv().dataDir,
-      alipay_configured: alipayConfigured,
+      alipay_enabled: pub.alipay_enabled,
+      alipay_mode: alipayMode,
+      alipay_configured: pub.alipay_configured,
       active_mode_ready: activeModeReady,
+      alipay_mode_detail: alipayModeDetail,
+      wxpay_enabled: pub.wxpay_enabled,
+      wxpay_mode: wxpayMode,
+      wxpay_configured: pub.wxpay_configured,
+      wxpay_detail: wxpayDetail,
       callbacks_private_allowed: getRuntimeEnv().allowPrivateCallbacks,
     });
   });
