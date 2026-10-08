@@ -12,6 +12,7 @@
 ```properties
 # SweetCheckout Hook 配置文件
 api_url=http://127.0.0.1:62233/api/hook/receive
+hook_token=
 wechat_key=
 database_folder=auto
 

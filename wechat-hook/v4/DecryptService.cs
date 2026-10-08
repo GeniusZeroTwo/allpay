@@ -77,13 +77,7 @@ namespace WeChatHook
 
             using (var outputStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write))
             {
-                byte[] encryptedData;
-                using (var fs = File.Open(dbPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                using (var memoryStream = new MemoryStream())
-                {
-                    fs.CopyTo(memoryStream);
-                    encryptedData = memoryStream.ToArray();
-                }
+                byte[] encryptedData = ReadFileBytesSafely(dbPath);
                 var totalPages = (int)Math.Ceiling((double)encryptedData.Length / PageSize);
                 var salt = new byte[SaltSize];
                 Array.Copy(encryptedData, 0, salt, 0, SaltSize);
@@ -247,9 +241,28 @@ namespace WeChatHook
             }
         }
 
+        private static byte[] ReadFileBytesSafely(string filePath, int maxRetries = 3, int delayMs = 60)
+        {
+            for (int attempt = 0; attempt < maxRetries; attempt++)
+            {
+                try
+                {
+                    using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    using var memoryStream = new MemoryStream((int)Math.Min(fs.Length, 1024 * 1024 * 128));
+                    fs.CopyTo(memoryStream);
+                    return memoryStream.ToArray();
+                }
+                catch (IOException) when (attempt < maxRetries - 1)
+                {
+                    Thread.Sleep(delayMs * (attempt + 1));
+                }
+            }
+            throw new IOException($"无法安全读取微信数据库文件，可能处于高并发写入锁定中: {filePath}");
+        }
+
         private static byte[] ReadPage(FileInfo file, int pageNum)
         {
-            using (var stream = file.OpenRead())
+            using (var stream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
             {
                 var page = new byte[PageSize];
                 var position = pageNum * (long)PageSize;

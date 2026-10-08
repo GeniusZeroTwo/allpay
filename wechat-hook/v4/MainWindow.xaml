@@ -1,4 +1,4 @@
-﻿<Window x:Class="WeChatHook.MainWindow"
+<Window x:Class="WeChatHook.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -14,6 +14,7 @@
         <Menu Grid.Row="0">
             <MenuItem Header="文件">
                 <MenuItem Header="设置后端地址" Click="SetApiUrl_Click"/>
+                <MenuItem Header="设置鉴权令牌" Click="SetHookToken_Click"/>
                 <MenuItem Header="设置密钥" Click="SetWeChatKey_Click"/>
                 <MenuItem Header="设置数据库路径" Click="SetWeChatDatabaseFolder_Click"/>
                 <Separator />

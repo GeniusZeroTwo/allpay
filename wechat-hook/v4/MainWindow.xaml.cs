@@ -22,6 +22,7 @@ namespace WeChatHook
         Dictionary<string, string> Config = [];
         List<string> comments = [];
         private string apiUrl = "";
+        private string hookToken = "";
         private string hexKey = "";
         private string databaseFolder = "";
         private string realDbFolder = "";
@@ -63,6 +64,10 @@ namespace WeChatHook
             if (fi.Exists && (fileName.StartsWith("biz_message_") || fileName.StartsWith("message_")))
             {
                 if (hexKey == string.Empty) return;
+                // 轻微防抖延迟（60ms），等待系统 WAL 批量落盘，降低热文件争用
+                await Task.Delay(60);
+                if (!fi.Exists) return;
+
                 if (fileName.EndsWith(".db"))
                 {
                     info($"检测到聊天数据变更 {fi.Name}");
@@ -90,30 +95,32 @@ namespace WeChatHook
                 NextProcessFiles.Add(fullPath);
                 return;
             }
+            ProcessingFiles.Add(fullPath);
             List<Message> scan;
             try
             {
                 DecryptService.DecryptDatabase(hexKey, fi.FullName, target);
                 scan = await DatabaseService.Scan(target);
-                ProcessingFiles.Remove(fullPath);
             }
             catch (Exception ex)
             {
-                warn($"(文件监听) {ex}");
-                ProcessingFiles.Remove(fullPath);
+                warn($"(文件监听) {ex.Message}");
                 if (NextProcessFiles.Remove(fullPath)) await OnFileChange(fi);
-                DeleteDatabaseFile(target);
                 return;
             }
+            finally
+            {
+                ProcessingFiles.Remove(fullPath);
+                DeleteDatabaseFile(target);
+            }
+
             if (NextProcessFiles.Remove(fullPath))
             {
-                DeleteDatabaseFile(target);
                 await OnFileChange(fi);
             }
             else
             {
                 handleMessageSubmit(scan);
-                DeleteDatabaseFile(target);
             }
         }
 
@@ -162,7 +169,7 @@ namespace WeChatHook
                         {
                             try
                             {
-                                var targetUri = new Uri(apiUrl);
+                                var targetUri = BuildTargetUri(apiUrl, hookToken);
                                 var handler = new SocketsHttpHandler
                                 {
                                     PooledConnectionLifetime = TimeSpan.FromMinutes(5),
@@ -213,12 +220,17 @@ namespace WeChatHook
                                 var request = new HttpRequestMessage(HttpMethod.Post, targetUri);
                                 request.Headers.Add("User-Agent", "AllPay-Hook/1.0 (Windows NT 10.0; Win64; x64)");
                                 request.Headers.Add("Accept", "application/json");
+                                if (!string.IsNullOrWhiteSpace(hookToken))
+                                {
+                                    request.Headers.Add("X-Hook-Token", hookToken);
+                                }
                                 
                                 string jsonString = JsonSerializer.Serialize(new
                                 {
                                     type = "wechat",
                                     flag = message.SenderId == "gh_3dfda90e39d6" ? "reawrd-code" : "",
                                     money = message.Money ?? "",
+                                    token = hookToken,
                                 }, serializerOptions);
                                 request.Content = new StringContent(jsonString, utf8, "application/json");
                                 request.Content.Headers.ContentLength = utf8.GetByteCount(jsonString);
@@ -252,6 +264,63 @@ namespace WeChatHook
                     error($"处理收款记录时发生错误: {ex.Message}");
                 }
             }
+        }
+
+        private static string ExtractTokenFromUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return string.Empty;
+            try
+            {
+                int qIdx = url.IndexOf('?');
+                if (qIdx < 0) return string.Empty;
+                var query = url.Substring(qIdx + 1);
+                foreach (var part in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var kv = part.Split('=', 2);
+                    if (kv.Length == 2 && kv[0].Trim().Equals("token", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return Uri.UnescapeDataString(kv[1].Trim());
+                    }
+                }
+            }
+            catch { }
+            return string.Empty;
+        }
+
+        private static Uri BuildTargetUri(string baseApiUrl, string token)
+        {
+            var uri = new Uri(baseApiUrl);
+            if (string.IsNullOrWhiteSpace(token)) return uri;
+
+            var uriBuilder = new UriBuilder(uri);
+            var query = uriBuilder.Query.TrimStart('?');
+            var queryParts = new List<string>();
+            bool tokenReplaced = false;
+
+            if (!string.IsNullOrEmpty(query))
+            {
+                foreach (var part in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var kv = part.Split('=', 2);
+                    if (kv[0].Trim().Equals("token", StringComparison.OrdinalIgnoreCase))
+                    {
+                        queryParts.Add($"token={Uri.EscapeDataString(token)}");
+                        tokenReplaced = true;
+                    }
+                    else
+                    {
+                        queryParts.Add(part);
+                    }
+                }
+            }
+
+            if (!tokenReplaced)
+            {
+                queryParts.Add($"token={Uri.EscapeDataString(token)}");
+            }
+
+            uriBuilder.Query = string.Join("&", queryParts);
+            return uriBuilder.Uri;
         }
 
         private string? GetFromConfig(string name)
@@ -294,6 +363,15 @@ namespace WeChatHook
                 }
             }
             apiUrl = GetFromConfig("api_url") ?? "";
+            hookToken = GetFromConfig("hook_token") ?? GetFromConfig("token") ?? "";
+            if (string.IsNullOrEmpty(hookToken) && !string.IsNullOrEmpty(apiUrl))
+            {
+                var extracted = ExtractTokenFromUrl(apiUrl);
+                if (!string.IsNullOrEmpty(extracted))
+                {
+                    hookToken = extracted;
+                }
+            }
             hexKey = GetFromConfig("wechat_key") ?? "";
             databaseFolder = GetFromConfig("database_folder") ?? "auto";
             string cfOpt = GetFromConfig("cf_optimize") ?? "true";
@@ -357,6 +435,10 @@ namespace WeChatHook
             string path = Environment.CurrentDirectory + "\\config.properties";
 
             Config["api_url"] = apiUrl;
+            if (!string.IsNullOrEmpty(hookToken))
+            {
+                Config["hook_token"] = hookToken;
+            }
             Config["wechat_key"] = hexKey;
             Config["database_folder"] = databaseFolder;
             Config["cf_optimize"] = CloudflareOptimizer.Enabled ? "true" : "false";
@@ -533,9 +615,26 @@ namespace WeChatHook
             var dialog = new DialogSetApiUrl(apiUrl);
             if (dialog.ShowDialog() == true)
             {
-                apiUrl = dialog.Text;
+                apiUrl = dialog.Text.Trim();
+                var extracted = ExtractTokenFromUrl(apiUrl);
+                if (!string.IsNullOrEmpty(extracted))
+                {
+                    hookToken = extracted;
+                    info("检测到后端链接附带 Token，已自动提取并更新鉴权令牌");
+                }
                 SaveConfig();
                 CheckWatcherStatus();
+            }
+        }
+
+        private void SetHookToken_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new DialogSetToken(hookToken);
+            if (dialog.ShowDialog() == true)
+            {
+                hookToken = dialog.Text;
+                SaveConfig();
+                info("鉴权令牌 (Token) 已更新");
             }
         }
 
