@@ -137,6 +137,18 @@ describe("PC WeChat Hook contract", () => {
     expect(order.type).toBe("wxpay");
 
     // 1. Missing token returns 401
+    // 0. GET health check diagnostics
+    const getNoToken = await app.request("http://localhost/api/hook/receive");
+    expect(getNoToken.status).toBe(200);
+    const getNoTokenBody = await getNoToken.json() as Record<string, unknown>;
+    expect(getNoTokenBody.status).toBe("pending_auth");
+
+    const getValidToken = await app.request("http://localhost/api/hook/receive?token=test-secret-token");
+    expect(getValidToken.status).toBe(200);
+    const getValidTokenBody = await getValidToken.json() as Record<string, unknown>;
+    expect(getValidTokenBody.status).toBe("ok");
+
+    // 1. Missing token returns 401
     const noToken = await app.request("http://localhost/api/hook/receive", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -152,11 +164,11 @@ describe("PC WeChat Hook contract", () => {
     });
     expect(badToken.status).toBe(401);
 
-    // 3. Valid token matches and confirms order
+    // 3. Valid token matches and confirms order (tolerating currency symbol ￥)
     const valid = await app.request("http://localhost/api/hook/receive?token=test-secret-token", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ type: "wechat", money: "5.00" }),
+      body: JSON.stringify({ type: "wechat", money: "￥5.00" }),
     });
     expect(valid.status).toBe(200);
     const validBody = await valid.json() as Record<string, unknown>;

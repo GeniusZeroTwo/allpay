@@ -396,6 +396,46 @@ export function createEasyPayRoutes(database: AppDatabase, scanner: PaymentScann
     }
   });
 
+  // PC WeChat Hook endpoint health check & connectivity diagnostics
+  app.get("/api/hook/receive", async (c) => {
+    const queryToken = c.req.query("token") ?? "";
+    const headerToken = c.req.header("x-hook-token") ?? c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+    const token = (queryToken || headerToken).trim();
+    const expectedToken = getSecret(database, "wxpay_hook_token");
+
+    if (expectedToken) {
+      if (!token) {
+        return c.json({
+          code: 0,
+          status: "pending_auth",
+          msg: "AllPay Hook 接口就绪（已启用 Token 保护，请求时请附带 ?token=xxx 或 X-Hook-Token 请求头）",
+          authenticated: false,
+        });
+      }
+      if (!checkHookTokenMatch(token, expectedToken)) {
+        return c.json({
+          code: -1,
+          status: "unauthorized",
+          msg: "Hook 鉴权失败：提供的 Token 与服务端配置不一致",
+          authenticated: false,
+        }, 401);
+      }
+      return c.json({
+        code: 1,
+        status: "ok",
+        msg: "AllPay Hook 接口就绪，Token 鉴权通过",
+        authenticated: true,
+      });
+    }
+
+    return c.json({
+      code: 1,
+      status: "ok",
+      msg: "AllPay Hook 接口就绪（当前未配置 wxpay_hook_token，无需鉴权）",
+      authenticated: true,
+    });
+  });
+
   // PC WeChat Hook / SweetCheckout Hook receiver
   app.post("/api/hook/receive", async (c) => {
     try {
@@ -405,24 +445,27 @@ export function createEasyPayRoutes(database: AppDatabase, scanner: PaymentScann
       const queryToken = c.req.query("token") ?? "";
       const headerToken = c.req.header("x-hook-token") ?? c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
       const token = String(body.token ?? (queryToken || headerToken)).trim();
+      const ip = clientIp(c.req.raw.headers) || "unknown";
+      const ua = c.req.header("user-agent") || "unknown";
 
-      console.info(`[Hook] 收到 Hook 回调请求: type=${type}, money=${money}, has_token=${Boolean(token)}`);
+      console.info(`[Hook] 收到 Hook 回调请求: type=${type}, money=${money}, ua=${ua}, ip=${ip}, has_token=${Boolean(token)}`);
 
       const expectedToken = getSecret(database, "wxpay_hook_token");
       if (expectedToken) {
         if (!checkHookTokenMatch(token, expectedToken)) {
-          console.warn(`[Hook] Token 鉴权失败: 来源 IP=${clientIp(c.req.raw.headers) || "unknown"}`);
+          console.warn(`[Hook] Token 鉴权失败: 来源 IP=${ip}`);
           return c.json({ code: -1, msg: "invalid hook token" }, 401);
         }
       } else {
-        console.warn(`[Hook] 警告: 未配置 wxpay_hook_token，当前 Hook 接口无鉴权防护！来源 IP=${clientIp(c.req.raw.headers) || "unknown"}`);
+        console.warn(`[Hook] 警告: 未配置 wxpay_hook_token，当前 Hook 接口无鉴权防护！来源 IP=${ip}`);
       }
 
       if (!money) {
         return c.json({ code: -1, msg: "missing money" }, 400);
       }
 
-      const amountCents = parseMoneyToCents(money);
+      const cleanMoney = money.replace(/^[￥¥\$\s]+/, "").trim();
+      const amountCents = parseMoneyToCents(cleanMoney);
       const targetChannel = type === "wechat" || type === "wxpay" ? "wxpay" : "alipay";
 
       // Match pending order by payable_amount_cents
@@ -443,7 +486,7 @@ export function createEasyPayRoutes(database: AppDatabase, scanner: PaymentScann
         buyer: "PC-Hook",
       });
 
-      console.info(`[Hook] 收款成功匹配订单: trade_no=${candidate.trade_no}, out_trade_no=${candidate.out_trade_no}, 金额=¥${money}`);
+      console.info(`[Hook] 收款成功匹配订单: trade_no=${candidate.trade_no}, out_trade_no=${candidate.out_trade_no}, 金额=¥${cleanMoney}`);
 
       return c.json({
         code: 1,
